@@ -1,0 +1,185 @@
+---
+title: "Course Project Machine Learning"
+author: "Martijn Bonnema"
+date: "24 april 2018"
+output: html_document
+---
+# Introduction
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+The goal of this course project is to predict the manner in which they did the exercise.
+
+## Data
+For this project we use the weight lifting Exercises Dataset
+
+Training data: [Training data](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+We use the training data to build the model
+
+Testing data: [Testing data](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+we use the testing data to predict 20 testing cases
+
+# Loading and processing data
+
+Load required packages and set working directory
+```{r}
+# set working directory
+setwd("~/Your Professionals/Coursera/Data Science R/7. Machine Learning/Course Project")
+
+# Loading the packages used for this project
+library(caret)
+library(tidyverse)
+library(randomForest)
+```
+
+## Load train en test dataset 
+```{r}
+# training data
+training <- read.csv("pml-training.csv", header = T, sep = ",", dec = ".", na.strings = c("", "#DIV/0!", "NA"))
+
+
+# testing data
+testing <- read.csv("pml-testing.csv", header = T, sep = ",", dec = ".", na.strings = c("", "#DIV/0!", "NA"))
+
+
+# We look at the structure of the data
+str(training)
+```
+
+The structure of the data shows a lot of missing data plus some variables aren't used for prediction:
+- X
+- User_name
+- raw_timestamp_part_1
+- raw_timestamp_part_2
+- cvtd_timestamp
+- new_window
+- num_window
+
+```{r}
+# remove useless columns in training
+training[c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window")] <- list(NULL)
+
+# remove useless columns in testing set
+testing[c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window")] <- list(NULL)
+```
+
+
+## Missing data
+We remove columns with more than 50% missing values
+
+```{r}
+# find the column number with more than 50% missing
+missing <- c()
+for(i in 1:ncol(training)) {
+  if(length(which(is.na(training[,i]))) > 0.5*nrow(training)) missing <- append(missing,i)
+}
+
+# remove the columns from dataset
+training <- training[,-missing]
+testing <- testing[,-missing]
+
+```
+
+## Near zero columns
+we also want to remove the near zero columns
+
+
+```{r}
+# find the columns with near zero variance and remove them from the datasets
+zero <- nearZeroVar(training, saveMetrics = T)
+table(zero$zeroVar) # all false so we don't have to remove any variable
+```
+
+## Test training set, data partitioning
+
+Trainig set is 70% of the data and training is 30%
+
+```{r}
+inTrain <- createDataPartition(y=training$classe, p=0.7, list=FALSE)
+ttraining <- training[inTrain, ]
+ttesting <- training[-inTrain, ]
+dim(ttraining)
+dim(ttesting)
+```
+
+# Model building
+
+## CART
+
+First we start with a simple model with cross validation to see its performance with 5-fold cross validation 
+
+```{r}
+control <- trainControl(method = "cv", 5)
+
+set.seed(1234)
+
+modeltree <- train(classe~., method = "rpart", data = ttraining, trControl = control)
+modeltree
+```
+Prediction with the CART model
+
+```{r}
+ttesting$predCART <- predict(modeltree, newdata = ttesting)
+
+# confusion matrix
+confusionMatrix(ttesting$predCART, ttesting$classe)
+```
+
+As we can see this model has only an accuracy of 58% on the test data. The out-of-sample error is 1-accuracy = 42. This model is not good so we try another one
+
+
+## Generalized Boosted Regression Models (GBM)
+our next model is al boosted model to get extra accuracy
+
+```{r}
+set.seed(1234)
+modelgbm <- train(classe~., method = "gbm", data = ttraining, verbose = F, trControl = control)
+modelgbm
+```
+and predict on the ttest dataset
+
+```{r}
+ttesting$predGBM <- predict(modelgbm, newdata = ttesting)
+
+# confusion matrix with the accuracy on the ttest data
+confusionMatrix(ttesting$predGBM, ttesting$classe)
+```
+As we can see this model has aan accuracy of over 96%. The out-of-sample error is 4%. This model is way beter than the CART three
+
+## Random Forest Model
+
+The last model I build is the Random Forest Model because it is often used for classification prediction and is seen as one of the best performing algoritm with high accuracy.
+
+```{r}
+set.seed(1234)
+modelRF <- train(classe~., data = ttraining, method = "rf", prox = T, trControl = control)
+modelRF
+```
+
+And predict with the Random Forest Model
+
+```{r}
+ttesting$predRF <- predict(modelRF, newdata = ttesting)
+
+# build a confusion matrix with the accuracy
+confusionMatrix(ttesting$predRF, ttesting$classe)
+```
+
+As we can see this model has aan accuracy of 99.4% on te ttesting dataset. The out-of-sample error is thereby 0.6%. This model performs very good and we use this to predict on the testing set with 20 cases.
+
+# Test cases
+
+We use the Random Forest model to test the 20 cases in the testing dataset and use the results for the quiz answers
+
+
+```{r}
+testing$predRF <- predict(modelRF, newdata = testing)
+
+Answers <- testing %>% select(problem_id, predRF)
+Answers # these are the predictive class for the quiz answers
+```
+
+
+
+
